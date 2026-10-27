@@ -1,10 +1,8 @@
 ﻿using ChatServer.Repo;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.ConstrainedExecution;
 
 namespace ChatServer;
-
 
 class Program
 {
@@ -12,59 +10,114 @@ class Program
     {
         Repository repo = new Repository();
 
-        var clients = new HashSet<TcpClient>();
-
-        var ip = IPAddress.Parse("10.1.18.1");
+        var ip = IPAddress.Parse("10.103.154.223");
         var port = 27001;
 
-        var tcpListener = new TcpListener(ip, port);
+        var listener = new TcpListener(ip, port);
+        listener.Start();
 
-        tcpListener.Start(10);
+        Console.WriteLine("Server ise dusdu...");
 
         while (true)
         {
-            Console.WriteLine($"{tcpListener.Server.LocalEndPoint} listening.....");
-
-            var client = tcpListener.AcceptTcpClient();
-
-            Console.WriteLine($"{client.Client.RemoteEndPoint} connected server....");
-            clients.Add(client);
+            var client = listener.AcceptTcpClient();
+            Console.WriteLine("Yeni client geldi");
 
             Task.Run(() =>
             {
-                var clientStream = client.GetStream();
-
-                var br = new BinaryReader(clientStream);
-
-                var readString = string.Empty;
-
-
-                var userIpEndPoint = string.Empty;
-
-                var index = 0;
-
-                while (true)
+                try
                 {
-                    readString = br.ReadString();
+                    var stream = client.GetStream();
+                    var br = new BinaryReader(stream);
+                    var bw = new BinaryWriter(stream);
 
-                    Console.WriteLine($"{clientStream.Socket.RemoteEndPoint} - {readString}");
+                    while (true)
+                    {
+                        string method = br.ReadString();
 
-                    index = readString.IndexOf(' ');
+                        if (method == "GET")
+                        {
+                            string idStr = br.ReadString();
+                            int id = int.Parse(idStr);
 
-                    userIpEndPoint = readString.Substring(0, index);
+                            if (id == 0)
+                            {
+                                var cars = repo.GetAll();
+                                bw.Write(cars.Count.ToString());
 
-                    var destination = clients.FirstOrDefault(x => x.Client.RemoteEndPoint?.ToString() == userIpEndPoint);
+                                foreach (var c in cars)
+                                {
+                                    WriteCar(bw, c);
+                                }
+                            }
+                            else
+                            {
+                                var car = repo.GetById(id);
+                                if (car == null)
+                                {
+                                    bw.Write("0");
+                                }
+                                else
+                                {
+                                    bw.Write("1");
+                                    WriteCar(bw, car);
+                                }
+                            }
+                        }
+                        else if (method == "POST")
+                        {
+                            Car car = ReadCar(br);
 
+                            var all = repo.GetAll();
+                            car.Id = all.Count > 0 ? all.Max(x => x.Id) + 1 : 1;
 
-                    var bw = new BinaryWriter(destination!.GetStream());
+                            repo.Add(car);
+                            bw.Write("OK");
+                        }
+                        else if (method == "PUT")
+                        {
+                            Car car = ReadCar(br);
+                            bool ok = repo.Update(car);
+                            bw.Write(ok ? "OK" : "ERROR");
+                        }
+                        else if (method == "DELETE")
+                        {
+                            string idStr = br.ReadString();
+                            int id = int.Parse(idStr);
 
-                    bw.Write($"{clientStream.Socket.RemoteEndPoint} - {readString.Substring(index + 1)}");
+                            bool ok = repo.Delete(id);
+                            bw.Write(ok ? "OK" : "ERROR");
+                        }
+                    }
                 }
-
+                catch
+                {
+                    Console.WriteLine("Client cixdi");
+                }
             });
-
         }
     }
-}
 
-   
+    static Car ReadCar(BinaryReader br)
+    {
+        return new Car
+        {
+            Id = int.Parse(br.ReadString()),
+            Make = br.ReadString(),
+            Model = br.ReadString(),
+            Year = br.ReadString(),
+            VIN = br.ReadString(),
+            Color = br.ReadString()
+        };
+    }
+
+    static void WriteCar(BinaryWriter bw, Car c)
+    {
+        bw.Write(c.Id.ToString());
+        bw.Write(c.Make);
+        bw.Write(c.Model);
+        bw.Write(c.Year);
+        bw.Write(c.VIN);
+        bw.Write(c.Color);
+    }
+}
